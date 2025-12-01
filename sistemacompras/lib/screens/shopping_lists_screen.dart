@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/shopping_list.dart';
 import '../services/api_service.dart';
 import 'shopping_list_detail_screen.dart';
+import '../widgets/connectivity_status.dart';
 
 class ShoppingListsScreen extends StatelessWidget {
   @override
@@ -9,6 +10,12 @@ class ShoppingListsScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: Text('Listas de Compras'),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+            child: ConnectivityStatus(),
+          ),
+        ],
       ),
       body: ShoppingListsBody(),
       floatingActionButton: FloatingActionButton(

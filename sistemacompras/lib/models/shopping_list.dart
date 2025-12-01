@@ -67,6 +67,7 @@ class Product {
   String notes;
   DateTime addedAt;
   DateTime updatedAt;
+  bool isSynced;
 
   Product({
     this.itemId,
@@ -78,6 +79,7 @@ class Product {
     required this.notes,
     required this.addedAt,
     required this.updatedAt,
+    this.isSynced = true,
   });
 
   Map<String, dynamic> toMap() {
@@ -91,6 +93,7 @@ class Product {
       'notes': notes,
       'addedAt': addedAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
+      'isSynced': isSynced ? 1 : 0,
     };
   }
 
@@ -105,6 +108,7 @@ class Product {
       notes: map['notes'] ?? '',
       addedAt: DateTime.parse(map['addedAt'] ?? DateTime.now().toIso8601String()),
       updatedAt: DateTime.parse(map['updatedAt'] ?? DateTime.now().toIso8601String()),
+      isSynced: (map['isSynced'] ?? 1) == 1,
     );
   }
 }

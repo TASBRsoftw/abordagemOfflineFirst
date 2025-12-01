@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import '../services/database_service.dart';
 import '../models/shopping_list.dart';
 import '../services/api_service.dart';
+import '../services/sync_service.dart';
 
 class ShoppingListDetailScreen extends StatefulWidget {
   final ShoppingList list;
@@ -19,8 +21,16 @@ class _ShoppingListDetailScreenState extends State<ShoppingListDetailScreen> {
   void initState() {
     super.initState();
     _list = widget.list;
-    _selected = List.generate(_list.products.length, (i) => false);
-    _quantities = _list.products.map((p) => p.quantity).toList();
+    _loadProducts();
+  }
+
+  Future<void> _loadProducts() async {
+    final products = await DatabaseService.getProductsForList(_list.id ?? '');
+    setState(() {
+      _list.products = products;
+      _selected = List.generate(_list.products.length, (i) => false);
+      _quantities = _list.products.map((p) => p.quantity).toList();
+    });
   }
 
   double get checkoutTotal {
@@ -71,7 +81,7 @@ class _ShoppingListDetailScreenState extends State<ShoppingListDetailScreen> {
               final price = double.tryParse(priceController.text.trim()) ?? 0.0;
               final quantity = double.tryParse(quantityController.text.trim()) ?? 1.0;
               if (name.isNotEmpty && price > 0) {
-                // Adicionar produto via API (mock local)
+                // Adicionar produto localmente e registrar na fila de sincronização
                 final newProduct = Product(
                   itemId: DateTime.now().millisecondsSinceEpoch.toString(),
                   itemName: name,
@@ -82,13 +92,19 @@ class _ShoppingListDetailScreenState extends State<ShoppingListDetailScreen> {
                   notes: '',
                   addedAt: DateTime.now(),
                   updatedAt: DateTime.now(),
+                  isSynced: false,
                 );
-                await ApiService().addItemToList(_list.id ?? '', newProduct);
-                setState(() {
-                  _list.products.add(newProduct);
-                  _selected.add(false);
-                  _quantities.add(quantity);
+                // Persistir localmente
+                // (Ajuste shoppingListId conforme seu modelo)
+                await DatabaseService.insertProduct(newProduct, _list.id ?? '');
+                // Registrar na fila de sincronização
+                await DatabaseService.addToSyncQueue('products', newProduct.itemId ?? '', 'CREATE', {
+                  ...newProduct.toMap(),
+                  'shoppingListId': _list.id ?? '',
                 });
+                print('[UI] Sync queue before sync: ' + (await DatabaseService.getSyncQueue()).toString());
+                await SyncService(ApiService()).syncPending();
+                await _loadProducts();
                 Navigator.pop(context);
               }
             },
@@ -113,13 +129,31 @@ class _ShoppingListDetailScreenState extends State<ShoppingListDetailScreen> {
                 return Card(
                   margin: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   child: ListTile(
-                    leading: Checkbox(
-                      value: _selected[index],
-                      onChanged: (val) {
-                        setState(() {
-                          _selected[index] = val ?? false;
-                        });
-                      },
+                    leading: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Checkbox(
+                          value: _selected[index],
+                          onChanged: (val) async {
+                            setState(() {
+                              _selected[index] = val ?? false;
+                            });
+                            // Edição offline: atualizar quantidade localmente e registrar na fila
+                            _list.products[index].quantity = _quantities[index];
+                            _list.products[index].isSynced = false;
+                            await DatabaseService.updateProduct(_list.products[index], _list.products[index].itemId ?? '');
+                            await DatabaseService.addToSyncQueue('products', _list.products[index].itemId ?? '', 'UPDATE', {
+                              ..._list.products[index].toMap(),
+                              'shoppingListId': _list.id ?? '',
+                            });
+                          },
+                        ),
+                        Icon(
+                          product.isSynced ? Icons.cloud_done : Icons.cloud_off,
+                          color: product.isSynced ? Colors.green : Colors.orange,
+                          size: 20,
+                        ),
+                      ],
                     ),
                     title: Text(product.itemName),
                     subtitle: Column(
@@ -146,7 +180,28 @@ class _ShoppingListDetailScreenState extends State<ShoppingListDetailScreen> {
                         ),
                       ],
                     ),
-                    trailing: Text('Total: R\$ ${(product.estimatedPrice * _quantities[index]).toStringAsFixed(2)}'),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('Total: R\$ ${(product.estimatedPrice * _quantities[index]).toStringAsFixed(2)}'),
+                        IconButton(
+                          icon: Icon(Icons.delete, color: Colors.red),
+                          onPressed: () async {
+                            // Remoção offline: remover localmente e registrar na fila
+                            await DatabaseService.deleteProduct(product.itemId ?? '');
+                            await DatabaseService.addToSyncQueue('products', product.itemId ?? '', 'DELETE', {
+                              ...product.toMap(),
+                              'shoppingListId': _list.id ?? '',
+                            });
+                            setState(() {
+                              _list.products.removeAt(index);
+                              _selected.removeAt(index);
+                              _quantities.removeAt(index);
+                            });
+                          },
+                        ),
+                      ],
+                    ),
                   ),
                 );
               },

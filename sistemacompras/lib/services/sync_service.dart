@@ -1,42 +1,54 @@
 import '../models/shopping_list.dart';
 import 'database_service.dart';
+import 'api_service.dart';
+import 'dart:convert';
 
 class SyncService {
-  final DatabaseService dbService;
   final ApiService apiService;
-  SyncService(this.dbService, this.apiService);
+  SyncService(this.apiService);
 
   // Sincroniza dados pendentes na fila
   Future<void> syncPending() async {
-    final queue = await dbService.getSyncQueue();
+    print('[SyncService] Starting syncPending');
+    final queue = await DatabaseService.getSyncQueue();
+    print('[SyncService] Sync queue length: \'${queue.length}\'');
     for (final item in queue) {
+      print('[SyncService] Processing item: \'${item}\'');
       final table = item['tableName'];
       final action = item['action'];
-      final payload = item['payload'];
+      final payload = item['payload'] is String ? jsonDecode(item['payload']) : item['payload'];
       final updatedAt = DateTime.parse(item['updatedAt']);
       // Exemplo para produtos
       if (table == 'products') {
-        // Buscar versão do servidor
-        final serverProduct = await apiService.fetchProductById(item['rowId']);
-        if (serverProduct != null) {
-          final serverUpdatedAt = DateTime.parse(serverProduct['updatedAt']);
-          if (isLocalWinner(updatedAt, serverUpdatedAt)) {
-            // Local é mais recente: enviar para servidor
-            await apiService.updateProduct(Product.fromMap(payload));
-          } else {
-            // Servidor é mais recente: sobrescrever local
-            await dbService.updateProduct(
-              Product.fromMap(serverProduct),
-              item['rowId'],
-            );
+        final payloadCopy = Map<String, dynamic>.from(payload);
+        final shoppingListId = payloadCopy.remove('shoppingListId') ?? '';
+        final product = Product.fromMap(payloadCopy);
+        if (action == 'CREATE') {
+          print('[SyncService] CREATE product: listId=${shoppingListId}, product=${product.toMap()}');
+          try {
+            await apiService.addItemToList(shoppingListId, product);
+          } catch (e) {
+            print('[SyncService] Error adding product: $e');
           }
-        } else {
-          // Produto não existe no servidor: criar
-          await apiService.addProduct(Product.fromMap(payload));
+        } else if (action == 'UPDATE') {
+          print('[SyncService] UPDATE product: id=${product.itemId}, product=${product.toMap()}');
+          try {
+            await apiService.updateProduct(product);
+          } catch (e) {
+            print('[SyncService] Error updating product: $e');
+          }
+        } else if (action == 'DELETE') {
+          print('[SyncService] DELETE product: listId=${shoppingListId}, id=${product.itemId}');
+          try {
+            await apiService.deleteItemFromList(shoppingListId, product.itemId ?? '');
+          } catch (e) {
+            print('[SyncService] Error deleting product: $e');
+          }
         }
       }
       // Remover da fila após sincronizar
-      await dbService.removeFromSyncQueue(item['id']);
+      await DatabaseService.removeFromSyncQueue(item['id']);
+      await DatabaseService.removeFromSyncQueue(item['id']);
     }
   }
 
