@@ -122,7 +122,18 @@ class ListService {
   async addItemToList(req, res) {
     try {
       const { id } = req.params;
-      const { itemId, quantity, notes } = req.body;
+      // Recebe todos os campos enviados pelo frontend
+      const {
+        itemId,
+        itemName,
+        quantity,
+        unit,
+        estimatedPrice,
+        purchased,
+        notes,
+        addedAt,
+        updatedAt
+      } = req.body;
       if (!itemId) {
         return res.status(400).json({ success: false, message: "ID do item é obrigatório" });
       }
@@ -133,25 +144,23 @@ class ListService {
       if (list.userId !== req.user.id) {
         return res.status(403).json({ success: false, message: "Acesso negado a esta lista" });
       }
-      // Buscar informações do item no Item Service (mock simplificado)
-      let itemInfo = { id: itemId, name: `Item ${itemId}`, unit: 'un', averagePrice: 1.0 };
       // Verificar se o item já está na lista
       const existingItemIndex = list.items.findIndex((item) => item.itemId === itemId);
       if (existingItemIndex >= 0) {
         list.items[existingItemIndex].quantity += parseFloat(quantity) || 1;
-        list.items[existingItemIndex].updatedAt = new Date().toISOString();
+        list.items[existingItemIndex].updatedAt = updatedAt || new Date().toISOString();
         if (notes) list.items[existingItemIndex].notes = notes;
       } else {
         list.items.push({
-          itemId: itemInfo.id,
-          itemName: itemInfo.name,
+          itemId,
+          itemName,
           quantity: parseFloat(quantity) || 1,
-          unit: itemInfo.unit,
-          estimatedPrice: itemInfo.averagePrice,
-          purchased: false,
+          unit: unit || 'un',
+          estimatedPrice: parseFloat(estimatedPrice) || 0,
+          purchased: purchased === true,
           notes: notes || "",
-          addedAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          addedAt: addedAt || new Date().toISOString(),
+          updatedAt: updatedAt || new Date().toISOString(),
         });
       }
       list.summary = this.calculateSummary(list.items);

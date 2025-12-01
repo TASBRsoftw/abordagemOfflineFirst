@@ -1,10 +1,10 @@
 // Popula dados mock antes de subir os serviços
 const { execSync } = require('child_process');
-try {
+/*try {
   execSync('node services/mock-data.js', { stdio: 'inherit' });
 } catch (e) {
   console.error('Erro ao popular mock:', e);
-}
+}*/
 const { spawn } = require('child_process');
 const path = require('path');
 
