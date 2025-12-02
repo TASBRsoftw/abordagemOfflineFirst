@@ -3,6 +3,7 @@ import '../services/database_service.dart';
 import '../models/shopping_list.dart';
 import '../services/api_service.dart';
 import '../services/sync_service.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 
 class ShoppingListDetailScreen extends StatefulWidget {
   final ShoppingList list;
@@ -21,16 +22,26 @@ class _ShoppingListDetailScreenState extends State<ShoppingListDetailScreen> {
   void initState() {
     super.initState();
     _list = widget.list;
-    _loadProducts();
+    _loadProductsLocalFirst();
+    _syncIfOnline();
   }
 
-  Future<void> _loadProducts() async {
+  Future<void> _loadProductsLocalFirst() async {
     final products = await DatabaseService.getProductsForList(_list.id ?? '');
     setState(() {
       _list.products = products;
       _selected = List.generate(_list.products.length, (i) => false);
       _quantities = _list.products.map((p) => p.quantity).toList();
     });
+  }
+
+  Future<void> _syncIfOnline() async {
+    // Verifica conectividade e sincroniza se online
+    final result = await Connectivity().checkConnectivity();
+    if (result != ConnectivityResult.none) {
+      await SyncService(ApiService()).syncPending();
+      await _loadProductsLocalFirst();
+    }
   }
 
   double get checkoutTotal {
@@ -97,14 +108,12 @@ class _ShoppingListDetailScreenState extends State<ShoppingListDetailScreen> {
                 // Persistir localmente
                 // (Ajuste shoppingListId conforme seu modelo)
                 await DatabaseService.insertProduct(newProduct, _list.id ?? '');
-                // Registrar na fila de sincronização
                 await DatabaseService.addToSyncQueue('products', newProduct.itemId ?? '', 'CREATE', {
                   ...newProduct.toMap(),
                   'shoppingListId': _list.id ?? '',
                 });
-                print('[UI] Sync queue before sync: ' + (await DatabaseService.getSyncQueue()).toString());
-                await SyncService(ApiService()).syncPending();
-                await _loadProducts();
+                await _loadProductsLocalFirst();
+                await _syncIfOnline();
                 Navigator.pop(context);
               }
             },

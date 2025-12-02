@@ -72,7 +72,7 @@ class DatabaseService {
       'id': list.id,
       'name': list.name,
       'updatedAt': list.updatedAt.toIso8601String(),
-      'isSynced': 0,
+      'isSynced': 1, // Mark backend lists as synced
     });
   }
 
@@ -83,7 +83,7 @@ class DatabaseService {
       {
         'name': list.name,
         'updatedAt': list.updatedAt.toIso8601String(),
-        'isSynced': 0,
+        'isSynced': 1, // Mark backend lists as synced
       },
       where: 'id = ?',
       whereArgs: [list.id],
@@ -153,5 +153,18 @@ class DatabaseService {
       await syncAction(item);
       await removeFromSyncQueue(item['id'].toString());
     }
+  }
+
+  static Future<List<ShoppingList>> getAllShoppingLists() async {
+    final db = await database;
+    final maps = await db.query('shopping_lists');
+    return maps.map((map) => ShoppingList(
+      id: map['id']?.toString(),
+      name: map['name']?.toString() ?? '',
+      description: '',
+      updatedAt: DateTime.parse(map['updatedAt']?.toString() ?? DateTime.now().toIso8601String()),
+      createdAt: DateTime.now(),
+      products: const [],
+    )).toList();
   }
 }

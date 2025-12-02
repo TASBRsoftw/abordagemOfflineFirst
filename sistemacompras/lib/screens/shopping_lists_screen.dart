@@ -3,6 +3,9 @@ import '../models/shopping_list.dart';
 import '../services/api_service.dart';
 import 'shopping_list_detail_screen.dart';
 import '../widgets/connectivity_status.dart';
+import '../services/database_service.dart';
+import '../services/sync_service.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 
 class ShoppingListsScreen extends StatelessWidget {
   @override
@@ -37,7 +40,18 @@ class ShoppingListsScreen extends StatelessWidget {
                 ElevatedButton(
                   onPressed: () async {
                     if (nameController.text.isNotEmpty) {
-                      await ApiService().createShoppingList(nameController.text, '');
+                      // Cria lista localmente
+                      final newList = ShoppingList(
+                        id: DateTime.now().millisecondsSinceEpoch.toString(),
+                        name: nameController.text,
+                        description: '',
+                        updatedAt: DateTime.now(),
+                        createdAt: DateTime.now(),
+                        products: const [],
+                      );
+                      await DatabaseService.insertShoppingList(newList);
+                      // Adiciona à sync queue
+                      await DatabaseService.addToSyncQueue('shopping_lists', newList.id ?? '', 'CREATE', newList.toMap());
                       Navigator.pop(context);
                       final state = ShoppingListsBody.of(context);
                       await state?._refreshLists();
@@ -69,19 +83,43 @@ class ShoppingListsBody extends StatefulWidget {
 
 class _ShoppingListsBodyState extends State<ShoppingListsBody> {
   late Future<List<ShoppingList>> _listsFuture;
+  bool _isOnline = true;
 
   @override
   void initState() {
     super.initState();
-    _listsFuture = ApiService().fetchShoppingLists();
+    _loadListsLocalFirst();
+    _initConnectivity();
+  }
+
+  Future<void> _initConnectivity() async {
+    final result = await Connectivity().checkConnectivity();
+    setState(() {
+      _isOnline = result != ConnectivityResult.none;
+    });
+    if (_isOnline) {
+      await _syncAndReload();
+    }
+  }
+
+  Future<void> _loadListsLocalFirst() async {
+    final lists = await DatabaseService.getAllShoppingLists();
+    setState(() {
+      _listsFuture = Future.value(lists);
+    });
+  }
+
+  Future<void> _syncAndReload() async {
+    await SyncService(ApiService()).syncPending();
+    final lists = await DatabaseService.getAllShoppingLists();
+    setState(() {
+      _listsFuture = Future.value(lists);
+    });
   }
 
   Future<void> _refreshLists() async {
-    final future = ApiService().fetchShoppingLists();
-    setState(() {
-      _listsFuture = future;
-    });
-    await future;
+    await _loadListsLocalFirst();
+    await _initConnectivity();
   }
 
   @override
@@ -134,13 +172,16 @@ class _ShoppingListsBodyState extends State<ShoppingListsBody> {
                   );
                 },
                 onDismissed: (direction) async {
-                  await ApiService().deleteShoppingList(list.id ?? '');
+                  // Remove localmente
+                  await DatabaseService.deleteShoppingList(int.tryParse(list.id ?? '') ?? 0);
+                  // Adiciona à sync queue
+                  await DatabaseService.addToSyncQueue('shopping_lists', list.id ?? '', 'DELETE', list.toMap());
                   await _refreshLists();
                 },
                 child: ListTile(
                   title: Text(list.name),
                   subtitle: Text('Atualizada em: ' + list.updatedAt.toString()),
-                  trailing: Icon(list.isSynced ? Icons.cloud_done : Icons.cloud_off),
+                  // trailing: Icon(list.isSynced ? Icons.cloud_done : Icons.cloud_off),
                   onTap: () async {
                     await Navigator.push(
                       context,
